@@ -33,7 +33,7 @@ extern void     pci_write_config_dword(uint8_t bus, uint8_t dev, uint8_t fn, uin
                             uint32_t val);
 extern uint8_t  inb (uint16_t port);
 extern void     outb(uint16_t port, uint8_t val);
-extern void     vmm_map(uint32_t* pd, uint32_t va, uint32_t pa, int flags);
+extern void     vmm_map(uint64_t* pd, uint64_t va, uint64_t pa, int flags);
 extern void     irq_spinlock_init   (irq_spinlock_t* lock);
 extern void     irq_spinlock_acquire(irq_spinlock_t* lock);
 extern void     irq_spinlock_release(irq_spinlock_t* lock);
@@ -61,10 +61,10 @@ extern int  blkdev_set_ident(const char *name, const char *ident);
 #define PAGE_PCD     0x10
 
 
-static inline uint32_t* get_current_pd(void) {
-    uint32_t val;
+static inline uint64_t* get_current_pd(void) {
+    uint64_t val;
     __asm__ __volatile__("mov %%cr3, %0" : "=r"(val));
-    return (uint32_t*)val;
+    return (uint64_t*)val;
 }
 
 /* ~1 ms busy wait with the PAUSE hint (ahci_udelay's twin).  The module ABI
@@ -533,14 +533,15 @@ static void nvme_free_queues(void) {
     if (bounce_block) { kfree(bounce_block); bounce_block = NULL; }
 }
 
-static int nvme_devfs_read(void *p, uint32_t off, uint32_t size, char *buffer) {
+static int nvme_devfs_read(void *p, uint64_t off, uint32_t size, char *buffer) {
     (void)p;
+    uint32_t off32 = (uint32_t)off;
     uint8_t *sector = (uint8_t *)kmalloc_aligned(NVME_SECTOR_SIZE, NVME_SECTOR_SIZE);
     if (!sector) return -1;
 
     uint32_t done = 0;
     while (done < size) {
-        uint32_t cur_off = off + done;
+        uint32_t cur_off = off32 + done;
         uint32_t lba     = cur_off / NVME_SECTOR_SIZE;
         uint32_t in_sec  = cur_off % NVME_SECTOR_SIZE;
         uint32_t n       = NVME_SECTOR_SIZE - in_sec;
@@ -558,14 +559,15 @@ static int nvme_devfs_read(void *p, uint32_t off, uint32_t size, char *buffer) {
     return (int)done;
 }
 
-static int nvme_devfs_write(void *p, uint32_t off, uint32_t size, char *buffer) {
+static int nvme_devfs_write(void *p, uint64_t off, uint32_t size, char *buffer) {
     (void)p;
+    uint32_t off32 = (uint32_t)off;
     uint8_t *sector = (uint8_t *)kmalloc_aligned(NVME_SECTOR_SIZE, NVME_SECTOR_SIZE);
     if (!sector) return -1;
 
     uint32_t done = 0;
     while (done < size) {
-        uint32_t cur_off = off + done;
+        uint32_t cur_off = off32 + done;
         uint32_t lba     = cur_off / NVME_SECTOR_SIZE;
         uint32_t in_sec  = cur_off % NVME_SECTOR_SIZE;
         uint32_t n       = NVME_SECTOR_SIZE - in_sec;
