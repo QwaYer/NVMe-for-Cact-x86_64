@@ -33,7 +33,10 @@ extern void     pci_write_config_dword(uint8_t bus, uint8_t dev, uint8_t fn, uin
                             uint32_t val);
 extern uint8_t  inb (uint16_t port);
 extern void     outb(uint16_t port, uint8_t val);
-extern void     vmm_map(uint64_t* pd, uint64_t va, uint64_t pa, int flags);
+/* Physical address -> the kernel direct-map VA at which it can be
+ * dereferenced.  Device MMIO lives in the direct map (uncached), shared by
+ * every address space, so a BAR needs no vmm_map() of its own. */
+extern void*    vmm_p2v(uint64_t phys);
 extern void     irq_spinlock_init   (irq_spinlock_t* lock);
 extern void     irq_spinlock_acquire(irq_spinlock_t* lock);
 extern void     irq_spinlock_release(irq_spinlock_t* lock);
@@ -60,12 +63,6 @@ extern int  blkdev_set_ident(const char *name, const char *ident);
 #define PAGE_PWT     0x8
 #define PAGE_PCD     0x10
 
-
-static inline uint64_t* get_current_pd(void) {
-    uint64_t val;
-    __asm__ __volatile__("mov %%cr3, %0" : "=r"(val));
-    return (uint64_t*)val;
-}
 
 /* ~1 ms busy wait with the PAUSE hint (ahci_udelay's twin).  The module ABI
  * exports no sleep primitive, and controller reset/IDENTIFY on real hardware
@@ -728,10 +725,8 @@ int pci_driver_probe(pci_device_t *pdev) {
         return -1;
     }
 
-    for (uint32_t off = 0; off < ndev.bar_size; off += 0x1000)
-        vmm_map(get_current_pd(), ndev.bar_phys + off, ndev.bar_phys + off,
-                PAGE_PRESENT | PAGE_RW | PAGE_PCD | PAGE_PWT);
-    ndev.bar = (volatile struct nvme_bar *)(uintptr_t)ndev.bar_phys;
+    /* BAR0 is reached through the direct map — no per-module mapping. */
+    ndev.bar = (volatile struct nvme_bar *)vmm_p2v(ndev.bar_phys);
 
     /* A non-0x02 prog_if was accepted on the class code alone; the capability
      * registers are the only evidence that this is an NVMe controller, so
